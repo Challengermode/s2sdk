@@ -46,7 +46,6 @@ public:
 	virtual INetworkMessageInternal *GetNetMessage() const = 0;
 	virtual CNetMessage *CopyConstruct() const = 0;
 	virtual NetworkMessageId GetMessageId() const = 0;
-	virtual const char *GetName() const = 0;
 
 	// Helper function to cast up the abstract message to a concrete CNetMessagePB<T> type.
 	// Doesn't do any validity checks itself!
@@ -97,44 +96,6 @@ public:
 	CNetMessagePB( const CNetMessagePB & ) = delete;
 };
 
-abstract_class IProtobufBinding
-{
-public:
-	virtual const char *GetName() = 0;
-	virtual int GetSize() = 0;
-
-	virtual const char *ToString(const void *pData, CUtlString &sResult) = 0;
-
-	virtual const char *GetGroup() = 0;
-	virtual Color GetGroupColor() = 0;
-	virtual NetChannelBufType_t GetBufType() = 0;
-
-	virtual CNetMessage *AllocateMessage() = 0;
-
-	virtual bool OkToRedispatch() = 0;
-	virtual bool unk001() = 0;
-};
-
-struct NetMessageInfo_t
-{
-	int m_nCategories;
-	IProtobufBinding *m_pBinding;
-	CUtlString m_szGroup;
-	NetworkMessageId m_MessageId;
-	NetworkGroupId m_GroupId;
-
-	// AMNOTE: From IProtobufBinding::GetBufType()
-	NetChannelBufType_t m_nBufType : 6;
-	// AMNOTE: Set by FindOrCreateNetMessage's bCannotBeNetworked
-	bool m_bCannotBeNetworked : 1;
-	uint8 m_unk001 : 1;
-
-	// AMNOTE: AddCategoryMask ORs nMask into it too when bRequireHandler is true. ConfirmAllMessageHandlersInstalled
-	// reports channels in these categories that have no handler registered for the message
-	int m_nRequiredHandlerCategories;
-	bool m_bOkayToRedispatch;
-};
-
 enum NetworkFieldChangedDelegateType_t
 {
 	NETWORK_FIELD_CHANGED_NO_VALUE,
@@ -165,11 +126,6 @@ public:
 
 	virtual void AssociateNetMessageWithChannelCategoryAbstract(INetworkMessageInternal *pNetMessage, NetworkCategoryId nCategoryId, bool) = 0;
 
-	// Passing nMessasgeId as -1 would auto-assign the id based on the message name hash.
-	// AMNOTE: bCannotBeNetworked marks the message as never sent over the network, Serialize rejects it,
-	// and its id is auto-assigned too
-	virtual INetworkMessageInternal *FindOrCreateNetMessage(int nMessageId, IProtobufBinding const *pProtoBinding, uint nMessageSize, INetworkSerializerBindingBuildFilter *pUnused, bool bCreateIfNotFound = true, bool bCannotBeNetworked = false) = 0;
-
 	virtual bool Serialize(bf_write &pBuf, const CNetMessage *pData) = 0;
 
 	virtual bool UnserializeMessageInternal( bf_read &pBuf, CNetMessage *pData ) = 0;
@@ -177,11 +133,6 @@ public:
 
 	// Returns nullptr if failed to unserialize, reason is written to err_reason
 	virtual CNetMessage *UnserializeFromStream(bf_read &pBuf, CUtlString &err_reason) = 0;
-	virtual bool SerializeAbstract(bf_write &pBuf, INetworkMessageInternal *pNetMessage, const CNetMessage *pData) = 0;
-
-	virtual CNetMessage *AllocateAndCopyConstructNetMessageAbstract(INetworkMessageInternal *pNetMessage, const CNetMessage *pFrom) = 0;
-
-	virtual void DeallocateNetMessageAbstract(INetworkMessageInternal *pNetMessage, CNetMessage *pData) = 0;
 
 	virtual void *RegisterNetworkFieldSerializer(char const *, NetworkSerializationMode_t, NetworkableDataType_t, int, NetworkFieldSerializeCB, NetworkFieldUnserializeCB, NetworkFieldInfoCB, 
 		NetworkFieldMetaInfoCB, NetworkableDataCB, NetworkUnkCB001, NetworkFieldSerializeCB, NetworkFieldUnserializeCB) = 0;
@@ -206,6 +157,10 @@ public:
 	// AMNOTE: Returns the data SetNetworkSerializationContextData set
 	virtual void *unk101(uint16 hContext, NetworkSerializationMode_t mode) = 0;
 	virtual void unk102(const void *) = 0;
+
+	// AMNOTE: Moved here in CS2 1.41.9.7, the message is now described by its allocate function instead of an
+	// IProtobufBinding. The parameter list is not confirmed
+	virtual INetworkMessageInternal *FindOrCreateNetMessage(int nMessageId, NetMessageAllocateFn pfnAllocate, int nGroup, NetChannelBufType_t nBufType, bool bUnk001 = false, bool bCannotBeNetworked = false) = 0;
 
 	// Doesn't support duplicated callbacks per field
 	virtual void RegisterNetworkFieldChangeCallbackInternal(char const *szFieldName, uint64, NetworkFieldChangedDelegateType_t fieldType, CUtlAbstractDelegate pCallback, NetworkFieldChangeCallbackPerformType_t cbPerformType, int unkflag ) = 0;

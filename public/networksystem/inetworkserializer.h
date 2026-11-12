@@ -18,13 +18,13 @@
 #include "schemasystem/baseschema.h"
 
 #include <memory>
+#include <cstddef>
 
 class CNetMessage;
 class CNetworkSerializerCodeGenDatabase;
 class CCheckTransmitInfo;
 class CEntityInstance;
 class CNetworkSerializerClassInfo;
-struct NetMessageInfo_t;
 
 enum NetworkValidationMode_t
 {
@@ -35,26 +35,40 @@ typedef int NetworkMessageId;
 typedef uint8 NetworkGroupId;
 typedef uint NetworkCategoryId;
 
-abstract_class INetworkMessageInternal
+typedef CNetMessage *( *NetMessageAllocateFn )();
+
+// AMNOTE: Since CS2 1.41.9.7 a net message handle (INetworkMessageInternal *) points straight at this record,
+// there is no longer a serializer object with a vtable in front of it, and no IProtobufBinding behind it
+struct NetMessageInfo_t
+{
+	// AMNOTE: Unscoped proto name followed by the message id, e.g. "CUserMessageTextMsg [124]"
+	CUtlString m_szName;
+	NetMessageAllocateFn m_pfnAllocate;
+	CUtlString m_szGroup;
+	NetworkMessageId m_MessageId;
+	int m_nCategories;
+	int m_nRequiredHandlerCategories;
+	NetworkGroupId m_GroupId;
+
+	// AMNOTE: Low bits hold the NetChannelBufType_t, the meaning of the high bits is not confirmed
+	uint8 m_nFlags;
+};
+
+static_assert( sizeof( void * ) != 8 || ( sizeof( NetMessageInfo_t ) == 40 && offsetof( NetMessageInfo_t, m_pfnAllocate ) == 8
+	&& offsetof( NetMessageInfo_t, m_szGroup ) == 16 && offsetof( NetMessageInfo_t, m_MessageId ) == 24
+	&& offsetof( NetMessageInfo_t, m_nCategories ) == 28 && offsetof( NetMessageInfo_t, m_GroupId ) == 36 ), "NetMessageInfo_t layout" );
+
+class INetworkMessageInternal : public NetMessageInfo_t
 {
 public:
-	virtual ~INetworkMessageInternal() = 0;
+	INetworkMessageInternal() = delete;
+	INetworkMessageInternal( const INetworkMessageInternal & ) = delete;
 
-	virtual const char *GetUnscopedName() = 0;
-	virtual NetMessageInfo_t *GetNetMessageInfo() = 0;
+	const char *GetUnscopedName() const { return m_szName.Get(); }
+	NetMessageInfo_t *GetNetMessageInfo() { return this; }
+	const NetMessageInfo_t *GetNetMessageInfo() const { return this; }
 
-	virtual void SetMessageId( NetworkMessageId nMessageId ) = 0;
-
-	virtual void AddCategoryMask( int nMask, bool bRequireHandler ) = 0;
-
-	virtual void SwitchMode( NetworkValidationMode_t nMode ) = 0;
-
-	virtual CNetMessage *AllocateMessage() = 0;
-
-	// Calls to INetworkMessages::SerializeMessageInternal
-	virtual bool Serialize( bf_write &pBuf, const CNetMessage *pData ) = 0;
-	// Calls to INetworkMessages::UnserializeMessageInternal
-	virtual bool Unserialize( bf_read &pBuf, CNetMessage *pData ) = 0;
+	CNetMessage *AllocateMessage() const { return m_pfnAllocate ? m_pfnAllocate() : nullptr; }
 };
 
 struct NetworkRecipientsFilter_t
